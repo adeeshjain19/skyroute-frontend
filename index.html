@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyRoute - Airline Reservation Mockup</title>
+
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        .main-content {
+            min-height: calc(100vh - 128px);
+        }
+    </style>
+
+    <!-- Tailwind config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-orange': '#f97352',
+                        'primary-dark': '#1e3a8a',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Lucide icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="text-gray-800">
+    <div id="app"></div>
+
+    <script>
+        // ---------------- DATA ----------------
+
+        let USER_DATA = {
+            name: "Aditi Jaiswal",
+            email: "aditijaiswal@gmail.com",
+            phone: "9876543213",
+            dob: "October 7th, 2025",
+            country: "India",
+            initial: "A"
+        };
+
+        let AUTH_CREDENTIALS = {
+            email: "test@skyroute.com",
+            password: "password123"
+        };
+
+        let authError = "";
+        let BOOKINGS_DATA = [];
+
+        let FLIGHT_RESULTS = [];
+
+        let currentPage = "home";
+        let isLoggedIn = false;
+        let authMode = "login";
+
+        let currentSearch = {
+            origin: "Departure City",
+            destination: "Arrival City",
+            date: "2025-10-15"
+        };
+
+        let selectedFlight = null;
+        let intendedPageAfterAuth = "profile";
+
+        // ---------------- UTILS ----------------
+
+        function renderIcon(name, size = 20, classes = "") {
+            return `<span class="lucide ${classes}" data-lucide="${name}" width="${size}" height="${size}"></span>`;
+        }
+
+        // --------------- FLIGHT API ---------------
+
+        async function fetchFlightsFromApi(searchParams) {
+            const { origin, destination, date } = searchParams;
+
+            try {
+                const url = `http://localhost:3000/api/flights?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&date=${encodeURIComponent(date)}`;
+
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
+
+                const data = await response.json();
+
+                const results = data.map(flight => ({
+                    id: flight.id || flight.flightNumber || "UNKNOWN",
+                    airline: flight.airline || "Unknown Airline",
+                    price: String(flight.price || "0"),
+                    departure: flight.departureTime || "00:00",
+                    arrival: flight.arrivalTime || "00:00",
+                    duration: flight.duration || "",
+                    stops: flight.stopsDescription || "Direct",
+                    originCode: flight.originCode || "XXX",
+                    destinationCode: flight.destinationCode || "YYY",
+                }));
+
+                return results;
+            } catch (error) {
+                console.error("Error fetching flights:", error);
+                alert("Could not load flights from server.");
+                return [];
+            }
+        }
+
+        // --------------- AUTH LOGIC ---------------
+
+        function simulateLogin() {
+            authError = "";
+
+            if (authMode === "signup") {
+                const firstName = document.getElementById("signup-first").value.trim();
+                const lastName = document.getElementById("signup-last").value.trim();
+                const email = document.getElementById("signup-email").value.trim();
+                const password = document.getElementById("signup-password").value;
+                const confirmPassword = document.getElementById("signup-confirm").value;
+
+                if (!firstName || !email || !password || password !== confirmPassword) {
+                    authError = "Please fill out all required fields and ensure passwords match.";
+                    renderPage("auth");
+                    return;
+                }
+
+                const phone = document.getElementById("signup-phone").value.trim();
+                const country = document.getElementById("signup-country").value.trim();
+                const dobInput = document.getElementById("signup-dob");
+
+                USER_DATA.name = `${firstName} ${lastName}`;
+                USER_DATA.email = email;
+                USER_DATA.phone = phone || "N/A";
+                USER_DATA.country = country || "N/A";
+                USER_DATA.initial = firstName.charAt(0).toUpperCase();
+                USER_DATA.dob = dobInput && dobInput.value
+                    ? new Date(dobInput.value).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric"
+                    })
+                    : "N/A";
+
+                AUTH_CREDENTIALS.email = email;
+                AUTH_CREDENTIALS.password = password;
+
+                isLoggedIn = true;
+                authMode = "login";
+                renderPage(intendedPageAfterAuth);
+                intendedPageAfterAuth = "profile";
+            } else {
+                const emailInput = document.getElementById("auth-email");
+                const passwordInput = document.getElementById("auth-password");
+
+                const enteredEmail = emailInput ? emailInput.value.trim() : "";
+                const enteredPassword = passwordInput ? passwordInput.value : "";
+
+                if (enteredEmail === AUTH_CREDENTIALS.email && enteredPassword === AUTH_CREDENTIALS.password) {
+                    isLoggedIn = true;
+                    renderPage(intendedPageAfterAuth);
+                    intendedPageAfterAuth = "profile";
+                } else {
+                    authError = "Invalid email or password. Please try again or sign up.";
+                    renderPage("auth");
+                }
+            }
+        }
+
+        function simulateLogout() {
+            isLoggedIn = false;
+            authMode = "login";
+            renderPage("home");
+        }
+
+        // --------------- ACTIONS ---------------
+
+        window.bookFlight = function (flightId) {
+            const flight = FLIGHT_RESULTS.find(f => f.id === flightId);
+            if (!flight) {
+                console.error("Error: Flight not found.");
+                return;
+            }
+
+            selectedFlight = {
+                ...flight,
+                originCity: currentSearch.origin,
+                destinationCity: currentSearch.destination,
+                flightDate: currentSearch.date,
+            };
+
+            if (!isLoggedIn) {
+                intendedPageAfterAuth = "payment";
+                renderPage("auth");
+            } else {
+                renderPage("payment");
+            }
+        };
+
+        window.completePayment = function () {
+            if (!selectedFlight) {
+                console.error("No selected flight to book.");
+                return;
+            }
+
+            if (!isLoggedIn) {
+                simulateLogin();
+            }
+
+            const newBookingId = "B" + (BOOKINGS_DATA.length + 1).toString().padStart(3, "0");
+
+            const displayDate = new Date(selectedFlight.flightDate + "T00:00:00").toLocaleDateString("en-IN", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+            });
+
+            const newBooking = {
+                id: newBookingId,
+                status: "Confirmed",
+                from: `${selectedFlight.originCity} (${selectedFlight.originCode})`,
+                to: `${selectedFlight.destinationCity} (${selectedFlight.destinationCode})`,
+                flight: `${selectedFlight.airline.substring(0, 2)}${selectedFlight.id.substring(2)} - ${displayDate}`,
+                passenger: USER_DATA.name,
+                seat: "1A",
+            };
+
+            BOOKINGS_DATA.push(newBooking);
+            renderPage("bookings");
+        };
+
+        window.searchFlights = async function () {
+            const originInput = document.getElementById("departure-city");
+            const destinationInput = document.getElementById("arrival-city");
+            const dateInput = document.getElementById("flight-date");
+
+            currentSearch.origin = originInput ? (originInput.value || originInput.placeholder) : "Unknown Origin";
+            currentSearch.destination = destinationInput ? (destinationInput.value || destinationInput.placeholder) : "Unknown Destination";
+            currentSearch.date = dateInput ? dateInput.value : "2025-10-15";
+
+            const app = document.getElementById("app");
+            app.innerHTML = `
+                ${renderHeader()}
+                <main class="main-content">
+                    <div class="max-w-4xl mx-auto p-8 text-center text-gray-600">
+                        Loading flights...
+                    </div>
+                </main>
+                ${renderFooter()}
+            `;
+
+            FLIGHT_RESULTS = await fetchFlightsFromApi(currentSearch);
+
+            renderPage("search_results");
+        };
+
+        window.switchAuthMode = function (mode) {
+            authMode = mode;
+            authError = "";
+            renderPage("auth");
+        };
+
+        // --------------- HEADER / FOOTER ---------------
+
+        function renderHeader() {
+            let navLinks = `
+                <nav class="hidden sm:flex space-x-8 text-gray-600 font-medium">
+                    <a href="#" onclick="renderPage('home')" class="${currentPage === 'home' || currentPage === 'search_results' ? 'text-primary-orange font-semibold' : 'hover:text-primary-orange'} transition duration-150">Home</a>
+                    <a href="#" onclick="renderPage('bookings')" class="${currentPage === 'bookings' ? 'text-primary-orange font-semibold' : 'hover:text-primary-orange'} transition duration-150">My Bookings</a>
+                    ${isLoggedIn ? `
+                        <a href="#" onclick="renderPage('profile')" class="${currentPage === 'profile' ? 'text-primary-orange font-semibold' : 'hover:text-primary-orange'} transition duration-150">Profile</a>
+                    ` : ""}
+                </nav>
+            `;
+
+            let authControls = "";
+            if (isLoggedIn) {
+                authControls = `
+                    <div class="relative">
+                        <button id="profile-toggle" class="w-8 h-8 rounded-full bg-primary-orange flex items-center justify-center text-white text-sm font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-primary-orange focus:ring-offset-2 transition duration-150">
+                            ${USER_DATA.initial}
+                        </button>
+                        <div id="profile-dropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl opacity-0 invisible transition duration-200 transform scale-95 origin-top-right p-4 border border-gray-100">
+                            <div class="flex items-center space-x-3 pb-3 mb-3 border-b border-gray-100">
+                                <span class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600">${USER_DATA.initial}</span>
+                                <div>
+                                    <p class="font-semibold text-gray-900">${USER_DATA.name}</p>
+                                    <p class="text-sm text-gray-500">${USER_DATA.email}</p>
+                                </div>
+                            </div>
+                            <a href="#" onclick="renderPage('profile')" class="flex items-center p-2 text-gray-700 hover:bg-gray-50 rounded-lg transition duration-150">
+                                ${renderIcon('User', 18, 'mr-2')} Profile
+                            </a>
+                            <a href="#" onclick="renderPage('bookings')" class="flex items-center p-2 text-gray-700 hover:bg-gray-50 rounded-lg transition duration-150">
+                                ${renderIcon('PlaneTakeoff', 18, 'mr-2')} My Bookings
+                            </a>
+                            <a href="#" onclick="simulateLogout()" class="flex items-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition duration-150">
+                                ${renderIcon('LogOut', 18, 'mr-2')} Log out
+                            </a>
+                        </div>
+                    </div>
+                `;
+            } else {
+                authControls = `
+                    <button onclick="renderPage('auth')" class="px-4 py-2 bg-primary-dark text-white font-medium rounded-xl hover:bg-primary-dark/90 transition duration-150 shadow-md">
+                        Log In / Sign Up
+                    </button>
+                `;
+            }
+
+            return `
+                <header class="bg-white shadow-md sticky top-0 z-10">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+                        <div class="flex items-center space-x-2">
+                            ${renderIcon('Plane', 24, 'text-primary-orange')}
+                            <span class="text-xl font-bold text-primary-dark">SkyRoute</span>
+                        </div>
+                        ${navLinks}
+                        ${authControls}
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderFooter() {
+            return `
+                <footer class="bg-white border-t border-gray-200 py-6 mt-12">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div class="flex items-center justify-between flex-wrap sm:flex-nowrap">
+                            <div class="flex items-center space-x-2 mb-4 sm:mb-0">
+                                <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600">${USER_DATA.initial}</div>
+                                <div class="flex items-center space-x-1">
+                                    ${renderIcon('Plane', 18, 'text-primary-orange')}
+                                    <span class="text-lg font-bold text-primary-dark">SkyRoute</span>
+                                </div>
+                            </div>
+                            <p class="text-sm text-gray-500 order-3 w-full text-center sm:w-auto sm:order-2">&copy; 2025 SkyRoute. All rights reserved.</p>
+                            <div class="flex space-x-4 text-sm text-gray-600 order-2 sm:order-3 w-full sm:w-auto justify-center mb-4 sm:mb-0">
+                                <a href="#" class="hover:text-primary-orange transition duration-150">About</a>
+                                <a href="#" class="hover:text-primary-orange transition duration-150">Contact</a>
+                                <a href="#" class="hover:text-primary-orange transition duration-150">Privacy Policy</a>
+                            </div>
+                        </div>
+                    </div>
+                </footer>
+            `;
+        }
+
+        // --------------- PAGES ---------------
+
+        function renderAuth() {
+            let content = "";
+            let header = "";
+            let footerLink = "";
+
+            let errorHtml = authError
+                ? `<p class="text-sm text-red-600 font-medium text-center mb-4">${authError}</p>`
+                : "";
+
+            if (authMode === "login") {
+                header = `
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-6 text-center">Welcome Back</h1>
+                    <p class="text-center text-gray-600 mb-8">Please log in to manage your account.</p>
+                `;
+                content = `
+                    ${errorHtml}
+                    <div>
+                        <label for="auth-email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                        <input type="email" id="auth-email" placeholder="you@example.com" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <div>
+                        <label for="auth-password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input type="password" id="auth-password" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <button onclick="simulateLogin()" class="w-full flex items-center justify-center py-3 bg-primary-orange text-white font-semibold rounded-xl shadow-lg hover:bg-primary-orange/90 transition duration-300 mt-6">
+                        Log In
+                    </button>
+                `;
+                footerLink = `
+                    <div class="text-center mt-4">
+                        <a href="#" onclick="switchAuthMode('signup')" class="text-sm text-primary-dark hover:text-primary-orange transition duration-150">
+                            Don't have an account? <span class="font-semibold underline">Sign Up</span>
+                        </a>
+                    </div>
+                `;
+            } else {
+                header = `
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-6 text-center">Create an Account</h1>
+                    <p class="text-center text-gray-600 mb-8">Join SkyRoute to start your journey.</p>
+                `;
+                content = `
+                    ${errorHtml}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="signup-first" class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                            <input type="text" id="signup-first" placeholder="John" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                        </div>
+                        <div>
+                            <label for="signup-last" class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                            <input type="text" id="signup-last" placeholder="Doe" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                        </div>
+                    </div>
+                    <div>
+                        <label for="signup-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input type="email" id="signup-email" placeholder="you@example.com" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="signup-phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                            <input type="tel" id="signup-phone" placeholder="+91 98765 43210" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                            <div class="relative">
+                                <input type="date" id="signup-dob" class="w-full p-3 border border-gray-300 rounded-xl appearance-none focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">${renderIcon('Calendar', 20)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="signup-country" class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                        <input type="text" id="signup-country" placeholder="India" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <div>
+                        <label for="signup-password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input type="password" id="signup-password" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <div>
+                        <label for="signup-confirm" class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                        <input type="password" id="signup-confirm" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                    </div>
+                    <button onclick="simulateLogin()" class="w-full flex items-center justify-center py-3 bg-primary-orange text-white font-semibold rounded-xl shadow-lg hover:bg-primary-orange/90 transition duration-300 mt-6">
+                        Create Account
+                    </button>
+                `;
+                footerLink = `
+                    <div class="text-center mt-4">
+                        <a href="#" onclick="switchAuthMode('login')" class="text-sm text-primary-dark hover:text-primary-orange transition duration-150">
+                            Already have an account? <span class="font-semibold underline">Log In</span>
+                        </a>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="max-w-md mx-auto p-4 md:p-8">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-lg border border-gray-100">
+                        ${header}
+                        <div class="space-y-4">
+                            ${content}
+                        </div>
+                        ${footerLink}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHome() {
+            const departurePlaceholder = "Departure City";
+            const arrivalPlaceholder = "Arrival City";
+
+            return `
+                <div class="max-w-4xl mx-auto p-4 md:p-8">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-lg mb-12">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6">Book Your Next Flight</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Departure / Arrival</label>
+                                <div class="flex space-x-2">
+                                    <input type="text" id="departure-city" placeholder="${departurePlaceholder}" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                                    <button class="text-gray-500 hover:text-primary-orange transition duration-150">${renderIcon('ArrowLeftRight', 20)}</button>
+                                    <input type="text" id="arrival-city" placeholder="${arrivalPlaceholder}" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Pick a date</label>
+                                    <div class="relative">
+                                        <input type="date" id="flight-date" value="${currentSearch.date}" class="w-full p-3 border border-gray-300 rounded-xl appearance-none focus:ring-primary-orange focus:border-primary-orange transition duration-150" />
+                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">${renderIcon('Calendar', 20)}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Passengers</label>
+                                    <div class="flex items-center border border-gray-300 rounded-xl">
+                                        <button class="p-3 text-gray-500 hover:bg-gray-100 rounded-l-xl transition duration-150" onclick="updatePassengerCount(-1)">${renderIcon('Minus', 16)}</button>
+                                        <input type="number" id="passenger-count" value="1" min="1" class="w-12 text-center border-x border-gray-300 p-3 focus:outline-none" readonly />
+                                        <button class="p-3 text-gray-500 hover:bg-gray-100 rounded-r-xl transition duration-150" onclick="updatePassengerCount(1)">${renderIcon('Plus', 16)}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-8">
+                            <p class="text-sm font-medium text-gray-700 mb-3">Select a special fare (optional)</p>
+                            <div class="flex flex-wrap gap-x-6 gap-y-3">
+                                ${["None", "Defence Fare", "Govt Employee", "Student", "Senior Citizen"].map((fare, index) => `
+                                    <div class="flex items-center">
+                                        <input id="fare-${index}" name="fare" type="radio" class="h-4 w-4 text-primary-orange border-gray-300 focus:ring-primary-orange" ${index === 0 ? "checked" : ""}>
+                                        <label for="fare-${index}" class="ml-2 block text-sm text-gray-700">${fare}</label>
+                                    </div>
+                                `).join("")}
+                            </div>
+                        </div>
+                        <button onclick="searchFlights()" class="mt-8 w-full flex items-center justify-center py-4 bg-primary-orange text-white font-semibold rounded-xl shadow-lg hover:bg-primary-orange/90 transition duration-300">
+                            ${renderIcon('Search', 20, 'mr-3')} Search Flights
+                        </button>
+                    </div>
+                    <div class="text-center py-16">
+                        <h2 class="text-3xl font-extrabold text-primary-dark mb-4">Why Choose SkyRoute?</h2>
+                        <p class="text-gray-600 max-w-xl mx-auto">We provide a world-class booking experience with unbeatable prices and top-notch customer service.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSearchResults() {
+            const { origin, destination, date } = currentSearch;
+
+            const displayDate = new Date(date + "T00:00:00").toLocaleDateString("en-IN", {
+                year: "numeric",
+                month: "short",
+                day: "numeric"
+            });
+
+            const hasResults = FLIGHT_RESULTS && FLIGHT_RESULTS.length > 0;
+
+            return `
+                <div class="max-w-5xl mx-auto p-4 md:p-8">
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-4">Available Flights</h1>
+                    <p class="text-gray-600 mb-8">Showing results for: <span class="font-semibold">${origin} &rarr; ${destination}</span> on <span class="font-semibold">${displayDate}</span></p>
+                    ${!hasResults ? `
+                        <div class="bg-white p-8 rounded-2xl shadow-md text-center text-gray-500">
+                            No flights found for your search.
+                        </div>
+                    ` : `
+                    <div class="bg-white p-4 rounded-xl shadow-md mb-6 flex flex-wrap gap-3 items-center text-sm text-gray-700 border border-gray-100">
+                        <span class="font-bold text-primary-dark">Filters:</span>
+                        <span class="px-3 py-1 bg-gray-100 rounded-full cursor-pointer hover:bg-gray-200 transition duration-150">Price: Low to High</span>
+                        <span class="px-3 py-1 bg-gray-100 rounded-full cursor-pointer hover:bg-gray-200 transition duration-150">Direct Only</span>
+                        <span class="px-3 py-1 bg-gray-100 rounded-full cursor-pointer hover:bg-gray-200 transition duration-150">Morning Departure</span>
+                        <span class="px-3 py-1 bg-gray-100 rounded-full cursor-pointer hover:bg-gray-200 transition duration-150">SkyRoute Only</span>
+                    </div>
+                    <div class="space-y-4">
+                        ${FLIGHT_RESULTS.map(flight => `
+                            <div class="bg-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition duration-300 border border-gray-100 flex flex-col md:flex-row items-center justify-between">
+                                <div class="flex-1 min-w-0 grid grid-cols-5 gap-4 items-center w-full">
+                                    <div class="col-span-2 sm:col-span-1 text-center md:text-left">
+                                        <p class="text-lg font-bold text-gray-900">${flight.airline}</p>
+                                        <p class="text-xs text-gray-400">Flight ${flight.id}</p>
+                                    </div>
+                                    <div class="col-span-1 text-center">
+                                        <p class="text-2xl font-bold text-primary-dark">${flight.departure}</p>
+                                        <p class="text-sm text-gray-600 font-semibold">${origin}</p>
+                                        <p class="text-xs text-gray-500">${flight.originCode}</p>
+                                    </div>
+                                    <div class="col-span-1 text-center flex flex-col items-center">
+                                        <p class="text-xs text-gray-500 mb-1">${flight.duration}</p>
+                                        <div class="w-full flex items-center justify-center space-x-1">
+                                            <div class="w-2 h-2 rounded-full bg-primary-dark"></div>
+                                            <div class="flex-grow border-t border-gray-300 border-dashed"></div>
+                                            ${renderIcon('Plane', 16, 'text-primary-orange')}
+                                            <div class="flex-grow border-t border-gray-300 border-dashed"></div>
+                                            <div class="w-2 h-2 rounded-full bg-primary-dark"></div>
+                                        </div>
+                                        <p class="text-sm font-medium text-gray-700 mt-1">${flight.stops}</p>
+                                    </div>
+                                    <div class="col-span-1 text-center">
+                                        <p class="text-2xl font-bold text-primary-dark">${flight.arrival}</p>
+                                        <p class="text-sm text-gray-600 font-semibold">${destination}</p>
+                                        <p class="text-xs text-gray-500">${flight.destinationCode}</p>
+                                    </div>
+                                </div>
+                                <div class="w-full md:w-auto mt-4 md:mt-0 md:ml-8 text-center md:text-right flex justify-between items-center md:flex-col">
+                                    <p class="text-3xl font-extrabold text-primary-orange mb-0 md:mb-2">₹${flight.price}</p>
+                                    <button class="px-6 py-2 bg-primary-dark text-white font-semibold rounded-xl hover:bg-primary-dark/90 transition duration-150 shadow-md" onclick="bookFlight('${flight.id}')">
+                                        Book Now
+                                    </button>
+                                </div>
+                            </div>
+                        `).join("")}
+                        <div class="text-center py-6 text-gray-500">
+                            <p>End of search results.</p>
+                        </div>
+                    </div>`}
+                </div>
+            `;
+        }
+
+        function renderPaymentPage() {
+            if (!selectedFlight) {
+                return `
+                    <div class="text-center py-20 text-gray-500">
+                        No flight selected for booking. Please return to
+                        <a href="#" onclick="renderPage('home')" class="text-primary-orange font-semibold">Home</a>.
+                    </div>
+                `;
+            }
+
+            const fees = 499; // INR fees
+            const totalPrice = parseInt(selectedFlight.price) + fees;
+
+            const displayDate = new Date(selectedFlight.flightDate + "T00:00:00").toLocaleDateString("en-IN", {
+                month: "long",
+                day: "numeric",
+                year: "numeric"
+            });
+
+            return `
+                <div class="max-w-4xl mx-auto p-4 md:p-8">
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-4">Finalize Your Booking</h1>
+                    <p class="text-gray-600 mb-8">Review the flight details and proceed to confirmation.</p>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="lg:col-span-2 bg-white p-8 rounded-2xl shadow-lg border border-gray-100 h-fit">
+                            <h2 class="text-xl font-bold text-gray-900 mb-6 border-b pb-3">Flight Details</h2>
+                            <div class="flex justify-between items-center mb-6">
+                                <div class="flex flex-col">
+                                    <span class="text-3xl font-extrabold text-primary-dark">${selectedFlight.originCity}</span>
+                                    <span class="text-sm text-gray-500">${selectedFlight.originCode}</span>
+                                </div>
+                                ${renderIcon('ArrowRight', 32, 'text-primary-orange')}
+                                <div class="flex flex-col text-right">
+                                    <span class="text-3xl font-extrabold text-primary-dark">${selectedFlight.destinationCity}</span>
+                                    <span class="text-sm text-gray-500">${selectedFlight.destinationCode}</span>
+                                </div>
+                            </div>
+                            <div class="space-y-3 text-gray-700">
+                                <div class="flex justify-between border-t border-dashed pt-3">
+                                    <span class="font-medium flex items-center">${renderIcon('Calendar', 18, 'mr-2')} Date:</span>
+                                    <span class="font-semibold">${displayDate}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="font-medium flex items-center">${renderIcon('Clock', 18, 'mr-2')} Time:</span>
+                                    <span class="font-semibold">${selectedFlight.departure} - ${selectedFlight.arrival}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="font-medium flex items-center">${renderIcon('Plane', 18, 'mr-2')} Airline:</span>
+                                    <span class="font-semibold">${selectedFlight.airline} (${selectedFlight.id})</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="font-medium flex items-center">${renderIcon('Map', 18, 'mr-2')} Stops:</span>
+                                    <span class="font-semibold">${selectedFlight.stops}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-1">
+                            <div class="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 mb-6">
+                                <h2 class="text-xl font-bold text-gray-900 mb-6 border-b pb-3">Payment Summary</h2>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between text-gray-700">
+                                        <span>Ticket Price:</span>
+                                        <span class="font-semibold">₹${selectedFlight.price}</span>
+                                    </div>
+                                    <div class="flex justify-between text-gray-700">
+                                        <span>Taxes & Fees:</span>
+                                        <span class="font-semibold">₹${fees}</span>
+                                    </div>
+                                    <div class="flex justify-between pt-3 border-t-2 border-primary-dark/50 text-xl font-extrabold text-primary-dark">
+                                        <span>Total Payable:</span>
+                                        <span>₹${totalPrice.toLocaleString("en-IN")}</span>
+                                    </div>
+                                </div>
+                                <button onclick="completePayment()" class="mt-8 w-full flex items-center justify-center py-3 bg-primary-orange text-white font-semibold rounded-xl shadow-lg hover:bg-primary-orange/90 transition duration-300">
+                                    ${renderIcon('CreditCard', 20, 'mr-2')} Confirm & Pay ₹${totalPrice.toLocaleString("en-IN")}
+                                </button>
+                            </div>
+                            <div class="text-center text-sm text-gray-500 mt-4">
+                                By clicking Confirm & Pay, you agree to the terms and conditions.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderBookings() {
+            if (BOOKINGS_DATA.length === 0) {
+                return `
+                    <div class="max-w-4xl mx-auto p-4 md:p-8">
+                        <h1 class="text-3xl font-extrabold text-primary-dark mb-8">My Bookings</h1>
+                        <div class="text-center py-20 bg-white rounded-2xl shadow-lg border border-gray-100">
+                            <p class="text-xl text-gray-600 mb-4">You have no active flight bookings.</p>
+                            <p class="text-gray-500">
+                                Search for a flight on the
+                                <a href="#" onclick="renderPage('home')" class="text-primary-orange font-semibold hover:underline">Home page</a>
+                                to get started!
+                            </p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="max-w-4xl mx-auto p-4 md:p-8">
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-8">My Bookings</h1>
+                    <div class="space-y-6">
+                        ${BOOKINGS_DATA.map(booking => `
+                            <div class="bg-white p-6 rounded-2xl shadow-md border border-gray-100">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center space-x-3">
+                                        ${renderIcon('Plane', 24, 'text-primary-dark')}
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-900">
+                                                ${booking.from.split("(")[0].trim()} to ${booking.to.split("(")[0].trim()}
+                                            </h3>
+                                            <p class="text-sm text-gray-500">${booking.flight}</p>
+                                        </div>
+                                    </div>
+                                    <span class="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">${booking.status}</span>
+                                </div>
+                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 border-t border-gray-100 pt-4">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase text-gray-500 mb-1">Booking ID</p>
+                                        <p class="text-sm font-medium text-gray-900">${booking.id}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase text-gray-500 mb-1">Passenger</p>
+                                        <p class="text-sm font-medium text-gray-900">${booking.passenger}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase text-gray-500 mb-1">Seat</p>
+                                        <p class="text-sm font-medium text-gray-900">${booking.seat}</p>
+                                    </div>
+                                    <div class="text-right flex justify-between items-center sm:col-span-1 col-span-2 mt-2 sm:mt-0">
+                                        <p class="text-xl font-bold text-gray-500">${booking.from.split("(")[1].replace(")", "")}</p>
+                                        ${renderIcon('ArrowRight', 20, 'text-gray-400')}
+                                        <p class="text-xl font-bold text-gray-500">
+                                            ${booking.to.includes("(") ? booking.to.split("(")[1].replace(")", "") : "N/A"}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProfile() {
+            const fields = [
+                { icon: "Mail", label: "Email",       value: USER_DATA.email },
+                { icon: "Phone", label: "Phone",       value: USER_DATA.phone },
+                { icon: "Calendar", label: "Date of Birth", value: USER_DATA.dob },
+                { icon: "Globe", label: "Country",     value: USER_DATA.country },
+            ];
+
+            return `
+                <div class="max-w-4xl mx-auto p-4 md:p-8">
+                    <h1 class="text-3xl font-extrabold text-primary-dark mb-8">Profile</h1>
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-lg max-w-xl mx-auto border border-gray-100">
+                        <div class="flex items-center space-x-6 pb-6 border-b border-gray-100 mb-6">
+                            <div class="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-3xl font-bold text-gray-600">
+                                ${USER_DATA.initial}
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-gray-900">${USER_DATA.name}</h2>
+                                <p class="text-gray-500">${USER_DATA.email}</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            ${fields.map(field => `
+                                <div class="flex items-center text-gray-700">
+                                    ${renderIcon(field.icon, 20, "mr-4 text-gray-400")}
+                                    <span class="w-32 font-medium">${field.label}:</span>
+                                    <span class="font-semibold text-gray-900">${field.value}</span>
+                                </div>
+                            `).join("")}
+                        </div>
+                        <div class="text-right mt-8">
+                            <button class="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition duration-150 shadow-sm" onclick="alert('Simulating Edit Profile action.')">
+                                Edit Profile
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --------------- RENDER ROOT ---------------
+
+        function renderPage(pageName) {
+            if (!isLoggedIn && (pageName === "bookings" || pageName === "profile")) {
+                intendedPageAfterAuth = pageName;
+                pageName = "auth";
+            }
+            if (!isLoggedIn && pageName === "payment") {
+                intendedPageAfterAuth = "payment";
+                pageName = "auth";
+            }
+
+            currentPage = pageName;
+            const app = document.getElementById("app");
+            let content = "";
+
+            switch (currentPage) {
+                case "home":
+                    content = renderHome();
+                    break;
+                case "bookings":
+                    content = renderBookings();
+                    break;
+                case "profile":
+                    content = renderProfile();
+                    break;
+                case "auth":
+                    content = renderAuth();
+                    break;
+                case "search_results":
+                    content = renderSearchResults();
+                    break;
+                case "payment":
+                    content = renderPaymentPage();
+                    break;
+                default:
+                    content = "<div>Page not found.</div>";
+            }
+
+            app.innerHTML = `
+                ${renderHeader()}
+                <main class="main-content">
+                    ${content}
+                </main>
+                ${renderFooter()}
+            `;
+
+            if (typeof lucide !== "undefined" && lucide.createIcons) {
+                lucide.createIcons();
+            }
+
+            setupEventListeners();
+        }
+
+        function setupEventListeners() {
+            const profileToggle = document.getElementById("profile-toggle");
+            const profileDropdown = document.getElementById("profile-dropdown");
+
+            if (profileToggle && profileDropdown) {
+                profileToggle.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const isVisible = profileDropdown.classList.contains("opacity-100");
+                    if (isVisible) {
+                        profileDropdown.classList.remove("opacity-100", "visible", "scale-100");
+                        profileDropdown.classList.add("opacity-0", "invisible", "scale-95");
+                    } else {
+                        profileDropdown.classList.remove("opacity-0", "invisible", "scale-95");
+                        profileDropdown.classList.add("opacity-100", "visible", "scale-100");
+                    }
+                });
+
+                document.addEventListener("click", (e) => {
+                    if (profileDropdown.classList.contains("opacity-100") && !profileToggle.contains(e.target)) {
+                        profileDropdown.classList.remove("opacity-100", "visible", "scale-100");
+                        profileDropdown.classList.add("opacity-0", "invisible", "scale-95");
+                    }
+                });
+            }
+
+            window.updatePassengerCount = function (change) {
+                const countInput = document.getElementById("passenger-count");
+                if (countInput) {
+                    let current = parseInt(countInput.value);
+                    let newValue = current + change;
+                    if (newValue >= 1) {
+                        countInput.value = newValue;
+                    }
+                }
+            };
+        }
+
+        window.onload = () => {
+            renderPage(currentPage);
+        };
+    </script>
+</body>
+</html>
