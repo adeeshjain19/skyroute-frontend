@@ -85,7 +85,7 @@
             const { origin, destination, date } = searchParams;
 
             try {
-                const url = `http://localhost:3000/api/flights?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&date=${encodeURIComponent(date)}`;
+                const url = `https://skyroute-backend.onrender.com/api/flights?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&date=${encodeURIComponent(date)}`;
 
                 const response = await fetch(url);
 
@@ -881,3 +881,4 @@
     </script>
 </body>
 </html>
+
